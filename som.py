@@ -22,64 +22,72 @@ def train_som(data, x_size=10, y_size=10, sigma=1.0, lr=0.5, iterations=1000):
     print(f"SOM training completed in {end_time - start_time:.2f} seconds.")
     return som
 
-def calculate_feature_heatmaps(data, som):
-    start_time = time.time()
-    feature_heatmaps = np.zeros((som._weights.shape[0], som._weights.shape[1], data.shape[1]))
-    counts = np.zeros((som._weights.shape[0], som._weights.shape[1]))
-
-    for i, xx in enumerate(data):
-        if i % 20 == 0:
-            print(f"Processing data point {i+1}/{data.shape[0]}", end="\r")
-        bmu = som.winner(xx)
-        feature_heatmaps[bmu[0], bmu[1], :] += xx
-        counts[bmu[0], bmu[1]] += 1
-        
-    for i in range(som._weights.shape[0]):
-        for j in range(som._weights.shape[1]):
-            if counts[i, j] > 0:
-                feature_heatmaps[i, j, :] /= counts[i, j]
-                
-    end_time = time.time()
-    print(f"Feature heatmaps calculation completed in {end_time - start_time:.2f} seconds.")
-    return feature_heatmaps
-
-def save_heatmaps(feature_heatmaps, output_folder):
-    start_time = time.time()
+def calculate_response(neuron_weight, data_point):
+    # Calculate Euclidean distance between the neuron weight and data point
     
-    num_features = feature_heatmaps.shape[2]
+    mask = ~np.isnan(neuron_weight) & ~np.isnan(data_point)
     
-    for i in range(num_features):
-        plt.figure(figsize=(28, 28))
-        im = plt.imshow(feature_heatmaps[:, :, i], cmap="viridis", interpolation='none')
-        plt.title(f'Feature {i+1} Heatmap')
-        plt.colorbar(im, orientation='vertical', fraction=0.045, pad=0.05).set_label('Feature Average')
-        
-        # Save each heatmap as an image file
-        plt.savefig(os.path.join(output_folder, f'feature_{i+1}_heatmap.png'))
-        
-        # Close the figure to free up memory
-        plt.close()
-        
-        if i % 2 == 0:
-            print(f"Saving heatmap {i+1}/{num_features}", end="\r")
-        
+    # Calculate the Euclidean distance for non-NaN values
+    distance = np.linalg.norm(neuron_weight[mask] - data_point[mask])
+    return distance  # Negative distance can be used as a measure of similarity
 
-    end_time = time.time()
-    print(f"Heatmap saving completed in {end_time - start_time:.2f} seconds.")
+def plot_activation_map_as_heatmap(som, data_point, img_label):
+    # Initialize the activation map
+    grid_shape = som.get_weights().shape[:2]
+#     print('grid_hape',grid_shape)
+    som_neurons_weights = som.get_weights() #.reshape(-1, som.get_weights().shape[2])
+#     print('som_neurons_weights', som_neurons_weights)
+    activation_map = np.zeros((grid_shape[0], grid_shape[1]))
+#     print('data point', data_point)
+    
+    for i in range(grid_shape[0]):
+        for j in range(grid_shape[1]):
+            # Calculate the response of neuron (i, j) to the data point
+            neuron_weight = som_neurons_weights[i, j]
+            response = calculate_response(neuron_weight, data_point)
+#             print('response',response)
+            # Assign the response to the activation map
+            activation_map[i, j] = response
+    
+    activation_map = np.log1p(activation_map) 
+    # max_index = np.argmax(activation_map)
+    # max_row, max_col = np.unravel_index(max_index, activation_map.shape)
+    # print("Maximum Value:", activation_map[max_row, max_col])
+    # print("Location (Row, Column):", max_row, max_col)
+
+    
+    # Create a heatmap of the activation map
+    plt.figure(figsize=(8, 8))
+    plt.imshow(activation_map, cmap='viridis', interpolation='none', aspect='auto')#,vmin=global_min, vmax=global_max)
+    plt.colorbar()  # Add a colorbar to show the scale
+    # plt.title('Activation Map (Heatmap) for Data Point')
+    # plt.xlabel('SOM Neuron X-coordinate')
+    # plt.ylabel('SOM Neuron Y-coordinate')
+    # Save the heatmap as an image
+    plt.savefig("data/heatmaps/heatmap-dp{}".format(img_label+1), bbox_inches='tight')
+    plt.close()  # Close the plot to free up resources
+
 
 # Usage
-data = pd.read_csv('data/descriptor/all_descriptors_cut.csv')
+data = pd.read_csv('data/descriptor/all_descriptors.csv')
 if not isinstance(data, np.ndarray):
     data = data.values
 
 # from sklearn.datasets import make_blobs   
 # data, _ = make_blobs(n_samples=2000, centers=5, n_features=400)
 
-# scaler = MinMaxScaler()
-# data_scaled = scaler.fit_transform(data)
+scaler = MinMaxScaler()
+data_scaled = scaler.fit_transform(data)
 
-data_scaled = data
+# data_scaled = data
 
-som = train_som(data_scaled, x_size=28, y_size=28, sigma=0.5, lr=0.1, iterations=2000)
-feature_heatmaps = calculate_feature_heatmaps(data_scaled, som)
-save_heatmaps(feature_heatmaps, "data/heatmaps/")
+som = train_som(data_scaled, x_size=28, y_size=28, sigma=0.5, lr=0.05, iterations=1000)
+
+
+global_min = 0
+global_max = 12
+for i in range(data_scaled.shape[0]):
+    print(f"Processing data point {i}...",end='\r')
+    plot_activation_map_as_heatmap(som, data_scaled[i], img_label = i)
+    if i > 30:
+        break
